@@ -47,6 +47,8 @@
 #include <libimobiledevice/notification_proxy.h>
 #include <libimobiledevice/afc.h>
 
+#include <libimobiledevice/sbservices.h>
+
 #include <plist/plist.h>
 
 #include <zip.h>
@@ -76,7 +78,9 @@ enum cmd_mode {
 	CMD_LIST_ARCHIVES,
 	CMD_ARCHIVE,
 	CMD_RESTORE,
-	CMD_REMOVE_ARCHIVE
+	CMD_REMOVE_ARCHIVE,
+	CMD_GET_APP_ICON,
+	CMD_SYSINFO
 };
 
 int cmd = CMD_NONE;
@@ -409,7 +413,9 @@ static void print_usage(int argc, char **argv)
 		 "  -R, --remove-archive APPID  Remove app archive specified by APPID\n"
 		 "  -o, --options\t\tPass additional options to the specified command.\n"
 		 "  -h, --help\t\tprints usage information\n"
-		 "  -d, --debug\t\tenable communication debugging\n" "\n");
+		 "  -d, --debug\t\tenable communication debugging\n"
+		 "  -s, --get-sysinfo\t\tshow sysinfo about this device\n"
+		 "  -p, --get-icon BundleIdentifier (and the file name ) of the App icon" "\n");
 	printf("Homepage: <http://libimobiledevice.org>\n");
 }
 
@@ -428,12 +434,14 @@ static void parse_opts(int argc, char **argv)
 		{"remove-archive", 1, NULL, 'R'},
 		{"options", 1, NULL, 'o'},
 		{"debug", 0, NULL, 'd'},
+		{"get-icon", 1, NULL, 'p'},
+		{"get-sysinfo", 0, NULL, 's'},
 		{NULL, 0, NULL, 0}
 	};
 	int c;
 
 	while (1) {
-		c = getopt_long(argc, argv, "hU:li:u:g:La:r:R:o:d", longopts,
+		c = getopt_long(argc, argv, "hU:li:u:g:La:r:R:o:dsp:", longopts,
 						(int *) 0);
 		if (c == -1) {
 			break;
@@ -448,6 +456,7 @@ static void parse_opts(int argc, char **argv)
 		case 'a':
 		case 'r':
 		case 'R':
+		case 'H':
 			if (cmd != CMD_NONE) {
 				printf("ERROR: A mode has already been supplied. Multiple modes are not supported.\n");
 				print_usage(argc, argv);
@@ -526,6 +535,19 @@ static void parse_opts(int argc, char **argv)
 			break;
 		case 'd':
 			idevice_set_debug_level(1);
+			break;
+		case 'p':
+			cmd = CMD_GET_APP_ICON;
+			if (optarg)
+			{
+				printf("CMD_GET APP ICON， optarg=%s\n", optarg);
+				appid = strdup(optarg);
+			}
+			
+			printf("Show Home Icon\n");
+			break;
+		case 's':
+			cmd = CMD_SYSINFO;
 			break;
 		default:
 			print_usage(argc, argv);
@@ -638,6 +660,39 @@ static void afc_upload_dir(afc_client_t afc, const char* path, const char* afcpa
 	}
 }
 
+
+/* write pngdata to file */
+
+#define HOME_PNG "home.png"
+#define ZHIHU_PNG "zhihu.png"
+#if 0
+
+#else
+static int write_png_data(const char *filename, const char **pngdata, uint64_t size)
+{
+		FILE *fp = fopen(filename, "wb+");
+		//unsigned int offset = 0;
+		//size_t ret = 0;
+		size_t amount = 0, written = 0;
+		
+		while(written < size)
+		{
+			amount = fwrite(*(pngdata+written), 1, size-written, fp);
+			written += amount;
+			if (written == size)
+			{
+				printf("written = size\n");
+				break;
+			}
+			printf("amount=%ld\n", amount);
+		}
+		
+		fflush(fp);
+		fclose(fp);
+		
+		return written;
+}
+#endif
 int main(int argc, char **argv)
 {
 	idevice_t phone = NULL;
@@ -1409,6 +1464,149 @@ run_again:
 	} else if (cmd == CMD_REMOVE_ARCHIVE) {
 		instproxy_remove_archive(ipc, appid, NULL, status_cb, NULL);
 		wait_for_command_complete = 1;
+	} else if (cmd == CMD_GET_APP_ICON) {
+		/* Get App Icon */
+		sbservices_error_t sberr;
+		sbservices_client_t sbclient= NULL;
+		
+		char *pngdata = NULL;
+		uint64_t pngsize;
+		int ret = 0;
+		
+		if (service) {
+			lockdownd_service_descriptor_free(service);
+		}
+		service = NULL;
+
+		if ((lockdownd_start_service(client, "com.apple.springboardservices", &service) !=
+			 LOCKDOWN_E_SUCCESS) || !service) {
+			fprintf(stderr, "Could not start com.apple.afc!\n");
+			goto leave_cleanup;
+		}
+
+		lockdownd_client_free(client);
+		client = NULL;
+		
+		sberr = sbservices_client_new(phone, service, &sbclient);
+		
+		if (sberr != SBSERVICES_E_SUCCESS)
+		{
+				printf("client_new failed: err=%d\n", sberr);
+				return -1;
+		}
+		
+		sberr = sbservices_client_start_service(phone, &sbclient, "ideviceinstaller");
+		
+		if (sberr != SBSERVICES_E_SUCCESS)
+		{
+				printf("start service failed: err=%d\n", sberr);
+				goto RELEASE_ICON;
+		}
+
+/***   Get the wallpaper
+		sberr = sbservices_get_home_screen_wallpaper_pngdata(sbclient, &pngdata, &pngsize);
+		
+		if (sberr != SBSERVICES_E_SUCCESS)
+		{
+				printf("get home screen wallpaper failed: err=%d\n", sberr);
+				goto RELEASE_ICON;
+		}
+
+		
+		printf("ret=%d, pngsize=%ld\n", ret, pngsize);
+		ret = write_png_data(HOME_PNG, (const char **) &pngdata, pngsize);
+		
+		printf("ret=%d, pngsize=%ld\n", ret, pngsize);
+		if(pngdata)
+			free(pngdata);
+***/
+		/* Get zhihu app icon*/
+		
+		sberr = sbservices_get_icon_pngdata(sbclient, appid ,&pngdata, &pngsize);
+		
+		if (sberr != SBSERVICES_E_SUCCESS)
+		{
+				printf("get home screen wallpaper failed: err=%d\n", sberr);
+				goto RELEASE_ICON;
+		}
+
+		printf("ret=%d, pngsize=%ld\n", ret, pngsize);
+		ret = write_png_data(appid, (const char **) &pngdata, pngsize);
+		
+		printf("ret=%d, pngsize=%ld\n", ret, pngsize);
+		if(pngdata)
+			free(pngdata);
+			
+RELEASE_ICON:
+		//Free sbclient.
+		sbservices_client_free(sbclient);
+		
+		
+	} else if (cmd == CMD_SYSINFO) {
+		/* Get Sys Info */
+		if (service) {
+			lockdownd_service_descriptor_free(service);
+		}
+		service = NULL;
+
+		if ((lockdownd_start_service(client, "com.apple.afc", &service) !=
+			 LOCKDOWN_E_SUCCESS) || !service) {
+			fprintf(stderr, "Could not start com.apple.afc!\n");
+			goto leave_cleanup;
+		}
+
+		lockdownd_client_free(client);
+		client = NULL;
+
+		if (afc_client_new(phone, service, &afc) != AFC_E_SUCCESS) {
+			fprintf(stderr, "Could not connect to AFC!\n");
+			goto leave_cleanup;
+		}
+		
+		/* get device info key*/
+		char *value = NULL;
+		if (afc_get_device_info_key(afc, "Model", &value) != AFC_E_SUCCESS)
+		{
+			fprintf(stderr, "Afc get decice info key failed");
+		}
+		printf("Model=%s\n", value);
+		if (value)
+			free(value);
+			
+		if (afc_get_device_info_key(afc, "FSTotalBytes", &value) != AFC_E_SUCCESS)
+		{
+			fprintf(stderr, "Afc get decice info key failed");
+		}
+		printf("FSTotalBytes=%s\n", value);
+		if (value)
+			free(value);
+			
+		if (afc_get_device_info_key(afc, "FSFreeBytes", &value) != AFC_E_SUCCESS)
+		{
+			fprintf(stderr, "Afc get decice info key failed");
+		}
+		printf("FSFreeBytes=%s\n", value);
+		if (value)
+			free(value);
+			
+		if (afc_get_device_info_key(afc, "FSBlockSize", &value) != AFC_E_SUCCESS)
+		{
+			fprintf(stderr, "Afc get decice info key failed");
+		}
+		printf("FSBlockSize=%s\n", value);
+		if (value)
+			free(value);
+		
+		/* We can use below function to get the KEY we used above */
+		char **device_information = NULL;
+		if (afc_get_device_info(afc, &device_information) != AFC_E_SUCCESS)
+		{
+			fprintf(stderr, "Afc get decice info key failed");
+		}
+		int i = 0;
+		for (i = 0; i<8; i++)
+		printf("Device_information: %s\n", *(device_information+i));
+		
 	} else {
 		printf
 			("ERROR: no command selected?! This should not be reached!\n");
