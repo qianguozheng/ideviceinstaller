@@ -543,8 +543,6 @@ static void parse_opts(int argc, char **argv)
 				printf("CMD_GET APP ICON， optarg=%s\n", optarg);
 				appid = strdup(optarg);
 			}
-			
-			printf("Show Home Icon\n");
 			break;
 		case 's':
 			cmd = CMD_SYSINFO;
@@ -670,27 +668,25 @@ static void afc_upload_dir(afc_client_t afc, const char* path, const char* afcpa
 #else
 static int write_png_data(const char *filename, const char **pngdata, uint64_t size)
 {
-		FILE *fp = fopen(filename, "wb+");
-		//unsigned int offset = 0;
-		//size_t ret = 0;
-		size_t amount = 0, written = 0;
-		
-		while(written < size)
+	size_t amount = 0, written = 0;
+	FILE *fp = fopen(filename, "wb+");
+	
+	while(written < size)
+	{
+		amount = fwrite(*(pngdata+written), 1, size-written, fp);
+		written += amount;
+		if (written == size)
 		{
-			amount = fwrite(*(pngdata+written), 1, size-written, fp);
-			written += amount;
-			if (written == size)
-			{
-				printf("written = size\n");
-				break;
-			}
-			printf("amount=%ld\n", amount);
+			printf("written = size\n");
+			break;
 		}
-		
-		fflush(fp);
-		fclose(fp);
-		
-		return written;
+		printf("amount=%ld\n", amount);
+	}
+	
+	fflush(fp);
+	fclose(fp);
+	
+	return written;
 }
 #endif
 int main(int argc, char **argv)
